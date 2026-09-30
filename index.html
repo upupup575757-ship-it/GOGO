@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; text-align: center; background-color: #f4f7f6; margin: 0; }
+    .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+    h2 { color: #333; margin-top: 0; }
+    
+    /* 按鈕與上傳元件樣式 */
+    .file-input-wrapper { margin: 20px 0; }
+    input[type="file"] { max-width: 100%; font-size: 16px; }
+    .btn { padding: 12px 24px; margin: 5px; border: none; border-radius: 6px; cursor: pointer; color: white; font-size: 16px; font-weight: bold; transition: opacity 0.2s; display: inline-block; text-decoration: none; }
+    .btn:hover { opacity: 0.8; }
+    .btn-upload { background-color: #4CAF50; }
+    .btn-folder { background-color: #2196F3; }
+    
+    #loading { display: none; margin-top: 15px; color: #0066cc; font-weight: bold; }
+    
+    /* 圖片庫區塊 */
+    h3 { margin-top: 40px; border-bottom: 2px solid #eee; padding-bottom: 10px; color: #555; }
+    .gallery { display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; margin-top: 20px; }
+    .thumbnail { width: 100px; height: 100px; object-fit: cover; cursor: pointer; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.15); transition: transform 0.2s; }
+    .thumbnail:hover { transform: scale(1.08); }
+    
+    /* 放大圖片的彈出視窗 (Modal) */
+    .modal { display: none; position: fixed; z-index: 100; padding-top: 40px; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.85); overflow: hidden; }
+    .modal-content { margin: auto; display: block; max-width: 90%; max-height: 80vh; border-radius: 8px; }
+    .close { position: absolute; top: 15px; right: 35px; color: #f1f1f1; font-size: 40px; font-weight: bold; cursor: pointer; }
+    .close:hover, .close:focus { color: #bbb; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>📷 雲端照片上傳系統</h2>
+    
+    <div class="file-input-wrapper">
+      <!-- 支援拍照 (手機會喚起相機) 與上傳圖片 -->
+      <input type="file" id="fileInput" accept="image/*">
+    </div>
+    
+    <button class="btn btn-upload" onclick="uploadPhoto()">⬆️ 上傳 / 確定</button>
+    
+    <!-- 雲端資料夾按鈕 -->
+    <a href="https://drive.google.com/drive/folders/1T-MTKPe9EM_OYWM7NOH7eYR_YYh7MY6V?usp=sharing" target="_blank" class="btn btn-folder">📂 開啟雲端資料夾</a>
+    
+    <div id="loading">⏳ 影像處理與上傳中，請稍候...</div>
+    
+    <h3>歷史紀錄 (點擊縮圖放大)</h3>
+    <div class="gallery" id="gallery">載入中...</div>
+  </div>
+
+  <!-- 放大預覽用的 Modal -->
+  <div id="myModal" class="modal">
+    <span class="close" onclick="closeModal()">&times;</span>
+    <img class="modal-content" id="fullImage">
+  </div>
+
+  <script>
+    // 網頁載入時自動讀取歷史紀錄圖片
+    document.addEventListener("DOMContentLoaded", loadImages);
+
+    function uploadPhoto() {
+      const fileInput = document.getElementById('fileInput');
+      if (fileInput.files.length === 0) {
+        alert('請先選擇或拍攝一張照片！');
+        return;
+      }
+
+      const file = fileInput.files[0];
+      const reader = new FileReader();
+      const loading = document.getElementById('loading');
+      const btn = document.querySelector('.btn-upload');
+      
+      loading.style.display = 'block';
+      btn.disabled = true; // 防止重複點擊
+
+      // 將圖片轉換為 Base64 格式
+      reader.onload = function(e) {
+        const base64Data = e.target.result;
+        // 若使用者沒有更改檔名，給予一個以時間戳記為主的預設名稱
+        const fileName = file.name || 'photo_' + new Date().getTime() + '.jpg';
+        
+        // 呼叫後端 Google Apps Script API
+        google.script.run
+          .withSuccessHandler(function(response) {
+            loading.style.display = 'none';
+            btn.disabled = false;
+            
+            if (response.success) {
+              alert('上傳成功！');
+              fileInput.value = ''; // 清空選擇的檔案
+              loadImages(); // 重新整理圖片庫
+            } else {
+              alert('上傳失敗：' + response.message);
+            }
+          })
+          .withFailureHandler(function(error) {
+            loading.style.display = 'none';
+            btn.disabled = false;
+            alert('發生錯誤：' + error.message);
+          })
+          .uploadImage(base64Data, fileName);
+      };
+      
+      reader.readAsDataURL(file);
+    }
+
+    // 取得資料夾圖片
+    function loadImages() {
+      const gallery = document.getElementById('gallery');
+      gallery.innerHTML = '讀取相片歷史紀錄中...';
+      
+      google.script.run
+        .withSuccessHandler(function(images) {
+          gallery.innerHTML = '';
+          if (images.length === 0) {
+            gallery.innerHTML = '<p style="color: #888;">目前資料夾沒有圖片</p>';
+            return;
+          }
+          
+          images.forEach(img => {
+            const imgElement = document.createElement('img');
+            imgElement.src = img.thumbnail;
+            imgElement.className = 'thumbnail';
+            imgElement.title = img.name;
+            // 點擊縮圖時，開啟放大視窗並替換大圖網址
+            imgElement.onclick = function() {
+              openModal(img.viewUrl);
+            };
+            gallery.appendChild(imgElement);
+          });
+        })
+        .getImages();
+    }
+
+    // Modal 功能操作
+    const modal = document.getElementById("myModal");
+    const modalImg = document.getElementById("fullImage");
+
+    function openModal(imgSrc) {
+      modal.style.display = "block";
+      modalImg.src = imgSrc;
+    }
+
+    function closeModal() {
+      modal.style.display = "none";
+      modalImg.src = ''; // 清空來源節省資源
+    }
+  </script>
+</body>
+</html>
